@@ -1,0 +1,49 @@
+{
+    "name": "rjusm/laravel-job-docs",
+    "description": "Generate browsable OpenAPI docs (importable into Postman) from Laravel job validation rules, for APIs that dispatch jobs by a handler/gateway-style map instead of one-route-per-action.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["laravel", "openapi", "postman", "docs", "queue", "jobs"],
+    "authors": [
+        {
+            "name": "rjusm"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/console": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/http": "^10.0|^11.0|^12.0|^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0|^10.0",
+        "pestphp/pest": "^2.0|^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Rjusm\\LaravelJobDocs\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Rjusm\\LaravelJobDocs\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Rjusm\\LaravelJobDocs\\LaravelJobDocsServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "pest"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}
