@@ -38,6 +38,14 @@ Point `map_provider` at whatever already produces your job map — a class imple
 'payload_field' => 'payload',
 'payload_group_field' => 'gateway',
 
+// Optional HTTP Basic Auth in front of the docs UI and openapi.json,
+// independent of whatever else is in `middleware` (IP allowlists, etc.).
+'basic_auth' => [
+    'enabled' => env('JOB_DOCS_BASIC_AUTH_ENABLED', false),
+    'username' => env('JOB_DOCS_BASIC_AUTH_USERNAME'),
+    'password' => env('JOB_DOCS_BASIC_AUTH_PASSWORD'),
+],
+
 // Optional: scrub generated examples before they're rendered/cached.
 // mask_examples is the single on/off switch for this.
 'mask_examples' => true,

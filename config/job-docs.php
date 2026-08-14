@@ -20,6 +20,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Basic Auth
+    |--------------------------------------------------------------------------
+    | Optional HTTP Basic Auth in front of the docs UI and openapi.json,
+    | independent of whatever else is already in `middleware` above (IP
+    | allowlists, etc.). Off by default — set enabled + username/password
+    | (e.g. via env) to turn it on.
+    */
+    'basic_auth' => [
+        'enabled' => env('JOB_DOCS_BASIC_AUTH_ENABLED', false),
+        'username' => env('JOB_DOCS_BASIC_AUTH_USERNAME'),
+        'password' => env('JOB_DOCS_BASIC_AUTH_PASSWORD'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Generation Mode
     |--------------------------------------------------------------------------
     | 'live'   - rebuild the spec/catalog on every request.

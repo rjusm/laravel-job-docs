@@ -23,3 +23,49 @@ it('renders the docs UI page', function () {
     $response->assertOk();
     $response->assertSee('openapi.json', false);
 });
+
+it('rejects requests without credentials when basic auth is enabled', function () {
+    config()->set('job-docs.basic_auth.enabled', true);
+    config()->set('job-docs.basic_auth.username', 'admin');
+    config()->set('job-docs.basic_auth.password', 'secret');
+
+    $response = $this->get('/docs');
+
+    $response->assertStatus(401);
+    $response->assertHeader('WWW-Authenticate', 'Basic realm="Job Docs"');
+});
+
+it('rejects wrong credentials when basic auth is enabled', function () {
+    config()->set('job-docs.basic_auth.enabled', true);
+    config()->set('job-docs.basic_auth.username', 'admin');
+    config()->set('job-docs.basic_auth.password', 'secret');
+
+    $response = $this->withServerVariables([
+        'PHP_AUTH_USER' => 'admin',
+        'PHP_AUTH_PW' => 'wrong-password',
+    ])->get('/docs');
+
+    $response->assertStatus(401);
+});
+
+it('allows requests with correct basic auth credentials', function () {
+    config()->set('job-docs.map_provider', [FakeMapProvider::class, 'map']);
+    config()->set('job-docs.basic_auth.enabled', true);
+    config()->set('job-docs.basic_auth.username', 'admin');
+    config()->set('job-docs.basic_auth.password', 'secret');
+
+    $response = $this->withServerVariables([
+        'PHP_AUTH_USER' => 'admin',
+        'PHP_AUTH_PW' => 'secret',
+    ])->get('/docs');
+
+    $response->assertOk();
+});
+
+it('does not require credentials when basic auth is disabled (default)', function () {
+    config()->set('job-docs.map_provider', [FakeMapProvider::class, 'map']);
+
+    $response = $this->get('/docs');
+
+    $response->assertOk();
+});

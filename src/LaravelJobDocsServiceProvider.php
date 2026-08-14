@@ -7,6 +7,7 @@ use Illuminate\Support\ServiceProvider;
 use Rjusm\LaravelJobDocs\Console\Commands\GenerateJobDocsCommand;
 use Rjusm\LaravelJobDocs\Generators\FakerExampleGenerator;
 use Rjusm\LaravelJobDocs\Http\Controllers\JobDocsController;
+use Rjusm\LaravelJobDocs\Http\Middleware\JobDocsBasicAuth;
 
 class LaravelJobDocsServiceProvider extends ServiceProvider
 {
@@ -46,9 +47,14 @@ class LaravelJobDocsServiceProvider extends ServiceProvider
 
     protected function registerRoutes(): void
     {
+        $middleware = array_merge(
+            (array) config('job-docs.middleware', ['web']),
+            [JobDocsBasicAuth::class]
+        );
+
         Route::group([
             'prefix' => config('job-docs.route', 'docs'),
-            'middleware' => config('job-docs.middleware', ['web']),
+            'middleware' => $middleware,
         ], function () {
             Route::get('/', [JobDocsController::class, 'index'])->name('job-docs.index');
             Route::get('/openapi.json', [JobDocsController::class, 'openapi'])->name('job-docs.openapi');
