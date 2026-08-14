@@ -62,6 +62,7 @@ class RuleParser
         $maxLength = null;
         $minimum = null;
         $maximum = null;
+        $dateFormat = null;
         $unknownHints = [];
 
         foreach ($tokens as $token) {
@@ -98,8 +99,13 @@ class RuleParser
                     $format = 'email';
                     break;
                 case 'date':
+                    $format = 'date';
+                    break;
                 case 'date_format':
                     $format = 'date';
+                    // Laravel's date_format rule takes a PHP date() token string
+                    // (e.g. "ymdHis"), so it can be fed straight to date().
+                    $dateFormat = $args;
                     break;
                 case 'string':
                 case 'alpha_dash':
@@ -114,11 +120,23 @@ class RuleParser
                     ));
                     break;
                 case 'digits':
+                    // Laravel's digits rule means "an integer-like string of
+                    // exactly N digits" — never a decimal. Only refines an
+                    // already-numeric field down to integer; it does NOT make an
+                    // otherwise-string field (e.g. a 20-digit account number,
+                    // which must stay a string to avoid int/float precision
+                    // loss) numeric on its own.
+                    if ($type === 'number') {
+                        $type = 'integer';
+                    }
                     $len = (int) $args;
                     $minLength = $maxLength = $len;
                     $pattern = '^\\d+$';
                     break;
                 case 'digits_between':
+                    if ($type === 'number') {
+                        $type = 'integer';
+                    }
                     [$min, $max] = array_pad(explode(',', (string) $args), 2, null);
                     $minLength = $min !== null ? (int) $min : $minLength;
                     $maxLength = $max !== null ? (int) $max : $maxLength;
@@ -163,6 +181,18 @@ class RuleParser
             }
         }
 
+        // digits/digits_between always set minLength/maxLength (a digit *count*),
+        // regardless of type. For a numeric/integer field that's the only signal
+        // we have for a realistic example range, since max/min/between/size on a
+        // numeric type set $minimum/$maximum directly instead and never touch
+        // these — so there's no ambiguity to resolve here.
+        if (($type === 'integer' || $type === 'number') && $minimum === null && $maximum === null && ($minLength !== null || $maxLength !== null)) {
+            $lowerDigits = $minLength ?? 1;
+            $upperDigits = $maxLength ?? max($lowerDigits, 1);
+            $minimum = $lowerDigits <= 0 ? 0 : (10 ** ($lowerDigits - 1));
+            $maximum = (10 ** max($upperDigits, 1)) - 1;
+        }
+
         $schema = ['type' => $type];
 
         if ($nullable) {
@@ -196,7 +226,7 @@ class RuleParser
         return [
             'schema' => $schema,
             'required' => $required,
-            'example' => $this->exampleFor($field, $type, $format, $enum, $minimum, $maximum, $maxLength, $minLength, $useFaker),
+            'example' => $this->exampleFor($field, $type, $format, $dateFormat, $pattern, $enum, $minimum, $maximum, $maxLength, $minLength, $useFaker),
         ];
     }
 
@@ -278,6 +308,8 @@ class RuleParser
         string $field,
         string $type,
         ?string $format,
+        ?string $dateFormat,
+        ?string $pattern,
         ?array $enum,
         int|float|null $minimum,
         int|float|null $maximum,
@@ -286,12 +318,14 @@ class RuleParser
         bool $useFaker,
     ): mixed {
         if ($useFaker && $this->faker !== null) {
-            return $this->faker->generate($field, $type, $format, $enum, $minimum, $maximum);
+            return $this->faker->generate($field, $type, $format, $dateFormat, $enum, $minimum, $maximum);
         }
 
         if ($enum !== null && $enum !== []) {
             return array_values($enum)[0];
         }
+
+        $digitsOnly = $pattern === '^\\d+$';
 
         return match (true) {
             $type === 'boolean' => true,
@@ -299,7 +333,8 @@ class RuleParser
             $type === 'number' => $minimum ?? 1,
             $type === 'object' => [],
             $format === 'email' => 'example@example.com',
-            $format === 'date' => date('Y-m-d'),
+            $format === 'date' => date($dateFormat ?? 'Y-m-d'),
+            $digitsOnly && $maxLength !== null => substr(str_repeat('1234567890', (int) ceil($maxLength / 10)), 0, max($maxLength, $minLength ?? 0)),
             $maxLength !== null => str_pad('', min($maxLength, max($minLength ?? 0, 3)), 'x'),
             default => 'example_'.$field,
         };

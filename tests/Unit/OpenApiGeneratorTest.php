@@ -2,6 +2,7 @@
 
 use Rjusm\LaravelJobDocs\Generators\OpenApiGenerator;
 use Rjusm\LaravelJobDocs\Tests\Fixtures\FakeEnvelopeRequest;
+use Rjusm\LaravelJobDocs\Tests\Fixtures\FakeFormRequest;
 use Rjusm\LaravelJobDocs\Tests\Fixtures\FakeMapProvider;
 
 beforeEach(function () {
@@ -93,6 +94,24 @@ it('generates faker-backed examples when use_faker is enabled', function () {
 
     expect($catalog['processing']['DEFAULT']['example']['session_id'])->toBeString();
     expect($catalog['processing']['DEFAULT']['example']['session_id'])->not->toBe('example_session_id');
+});
+
+it('resolves a real FormRequest envelope without triggering its validate-when-resolved behavior', function () {
+    // A FormRequest auto-validates against the ambient HTTP request as soon as
+    // the container resolves it. Regression test: this used to silently swallow
+    // that failure and drop every field but the ones injected by group/payload
+    // mapping (see resolveRules()'s ValidatesWhenResolved bypass).
+    config()->set('job-docs.envelope_rules', FakeFormRequest::class);
+    config()->set('job-docs.envelope_group_field', 'handler');
+    config()->set('job-docs.payload_field', 'payload');
+    config()->set('job-docs.payload_group_field', 'gateway');
+
+    $generator = app(OpenApiGenerator::class);
+    $catalog = $generator->catalog();
+    $request = $catalog['processing']['DEFAULT']['request'];
+
+    expect($request)->toHaveKeys(['handler', 'with_queue', 'payload', 'hash', 'datetime']);
+    expect($request['datetime'])->toMatch('/^\d{12}$/');
 });
 
 it('includes a merged full request example per catalog entry', function () {

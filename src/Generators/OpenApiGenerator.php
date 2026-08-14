@@ -4,6 +4,7 @@ namespace Rjusm\LaravelJobDocs\Generators;
 
 use Closure;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Validation\ValidatesWhenResolved;
 use ReflectionMethod;
 use Rjusm\LaravelJobDocs\Contracts\JobMapProvider;
 
@@ -230,7 +231,14 @@ class OpenApiGenerator
                     }
                 }
 
-                $instance = $this->container->make($source);
+                // FormRequest (and anything else implementing ValidatesWhenResolved)
+                // auto-validates against the ambient HTTP request as soon as the
+                // container resolves it — which is never what we want here, and
+                // would fail/throw since that request has nothing to do with this
+                // class's own rules. Bypass the container for those.
+                $instance = is_a($source, ValidatesWhenResolved::class, true)
+                    ? new $source()
+                    : $this->container->make($source);
 
                 return (array) $instance->rules();
             } catch (\Throwable) {

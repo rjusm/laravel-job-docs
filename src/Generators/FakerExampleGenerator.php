@@ -31,6 +31,7 @@ class FakerExampleGenerator
         string $field,
         string $type,
         ?string $format,
+        ?string $dateFormat,
         ?array $enum,
         int|float|null $minimum,
         int|float|null $maximum,
@@ -55,7 +56,10 @@ class FakerExampleGenerator
             ),
             $type === 'object' => [],
             $format === 'email' => $this->faker->safeEmail(),
-            $format === 'date' => $this->faker->date('Y-m-d'),
+            // Laravel's date_format rule takes a PHP date() token string (e.g.
+            // "ymdHis"), so a real timestamp formatted with it is both valid
+            // and realistic — Faker's own ->date() only accepts ICU-ish formats.
+            $format === 'date' => date($dateFormat ?? 'Y-m-d', $this->faker->dateTimeBetween('-1 day', '+1 day')->getTimestamp()),
             default => $this->guessStringByFieldName($field),
         };
     }
