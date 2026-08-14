@@ -59,6 +59,19 @@ it('builds a full fieldset schema and example', function () {
     expect($result['example'])->toHaveKeys(['session_id', 'amount']);
 });
 
+it('does not split a regex pattern containing a literal pipe', function () {
+    // Laravel's docs explicitly warn regex needs array form (or to be last)
+    // in a pipe-string precisely because the pattern itself may contain '|'.
+    $result = $this->parser->parseField('code', ['required', 'regex:/^[a-z|A-Z]+$/']);
+
+    expect($result['schema']['pattern'])->toBe('/^[a-z|A-Z]+$/');
+    expect($result['required'])->toBeTrue();
+
+    // Same check in single pipe-delimited string form, with a rule after it.
+    $result2 = $this->parser->parseField('code2', 'required|regex:/^[a-z|A-Z]+$/');
+    expect($result2['schema']['pattern'])->toBe('/^[a-z|A-Z]+$/');
+});
+
 it('nests dot-notation field names into a real nested object instead of a literal dotted key', function () {
     $result = $this->parser->parseFieldset([
         'sender_receiver_info.account_number' => 'required_without:sender_receiver_info.card_number',

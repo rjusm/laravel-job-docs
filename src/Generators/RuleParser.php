@@ -346,15 +346,38 @@ class RuleParser
         foreach ($entries as $entry) {
             $entry = is_string($entry) ? $entry : $this->stringifyRule($entry);
 
-            foreach (explode('|', $entry) as $token) {
-                $token = trim($token);
-                if ($token !== '') {
-                    $tokens[] = $token;
-                }
+            foreach ($this->splitPipeAware($entry) as $token) {
+                $tokens[] = $token;
             }
         }
 
         return $tokens;
+    }
+
+    /**
+     * Splits a rule string on `|`, except inside a regex/not_regex pattern —
+     * Laravel's own docs warn those can't safely coexist with more pipes in
+     * pipe-string form precisely because the pattern itself may contain `|`
+     * (e.g. `regex:/^[a-z|A-Z]+$/`). Once a `regex:`/`not_regex:` marker is
+     * found, everything from there to the end of the string is kept as one
+     * token instead of being split further.
+     *
+     * @return list<string>
+     */
+    private function splitPipeAware(string $entry): array
+    {
+        if (preg_match('/(?:^|\|)(regex:|not_regex:)/', $entry, $match, PREG_OFFSET_CAPTURE)) {
+            $markerStart = $match[1][1];
+            $before = rtrim(substr($entry, 0, $markerStart), '|');
+            $regexToken = trim(substr($entry, $markerStart));
+
+            $tokens = array_values(array_filter(array_map('trim', explode('|', $before)), fn ($v) => $v !== ''));
+            $tokens[] = $regexToken;
+
+            return $tokens;
+        }
+
+        return array_values(array_filter(array_map('trim', explode('|', $entry)), fn ($v) => $v !== ''));
     }
 
     private function stringifyRule(mixed $rule): string
