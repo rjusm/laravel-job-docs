@@ -30,6 +30,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Labels
+    |--------------------------------------------------------------------------
+    | Human-readable names for group1/group2 in the UI (e.g. "Handler"/"Gateway").
+    */
+    'group1_label' => 'Group 1',
+    'group2_label' => 'Group 2',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Try It
+    |--------------------------------------------------------------------------
+    | Lets the docs UI send a real HTTP request (with an editable example body)
+    | to one of the configured endpoints and show the response.
+    */
+    'allow_try_it' => env('JOB_DOCS_ALLOW_TRY_IT', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Job Map Source
     |--------------------------------------------------------------------------
     | A class implementing Rjusm\LaravelJobDocs\Contracts\JobMapProvider, or
@@ -68,8 +86,21 @@ return [
     |--------------------------------------------------------------------------
     | Optional callable applied to every generated example payload before it
     | is persisted/rendered, e.g. [App\Services\DataMasker::class, 'mask'].
+    | mask_examples is the single on/off switch — flip it off without having
+    | to unset example_masker.
     */
+    'mask_examples' => env('JOB_DOCS_MASK_EXAMPLES', true),
     'example_masker' => null,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Faker
+    |--------------------------------------------------------------------------
+    | When enabled, example values are generated with fakerphp/faker (seeded
+    | per field so repeated generations stay stable) instead of plain
+    | placeholders like "example_field".
+    */
+    'use_faker' => env('JOB_DOCS_USE_FAKER', true),
 
     'tag' => 'Job Docs',
 

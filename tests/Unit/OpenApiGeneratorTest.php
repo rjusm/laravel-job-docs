@@ -70,3 +70,43 @@ it('applies the configured example masker to generated payloads', function () {
 
     expect($catalog['processing']['DEFAULT']['example']['session_id'])->toBe('***masked***');
 });
+
+it('skips masking entirely when mask_examples is disabled, even with a masker configured', function () {
+    config()->set('job-docs.example_masker', function (array $data) {
+        $data['session_id'] = '***masked***';
+
+        return $data;
+    });
+    config()->set('job-docs.mask_examples', false);
+
+    $generator = app(OpenApiGenerator::class);
+    $catalog = $generator->catalog();
+
+    expect($catalog['processing']['DEFAULT']['example']['session_id'])->toBe('example_session_id');
+});
+
+it('generates faker-backed examples when use_faker is enabled', function () {
+    config()->set('job-docs.use_faker', true);
+
+    $generator = app(OpenApiGenerator::class);
+    $catalog = $generator->catalog();
+
+    expect($catalog['processing']['DEFAULT']['example']['session_id'])->toBeString();
+    expect($catalog['processing']['DEFAULT']['example']['session_id'])->not->toBe('example_session_id');
+});
+
+it('includes a merged full request example per catalog entry', function () {
+    config()->set('job-docs.envelope_rules', FakeEnvelopeRequest::class);
+    config()->set('job-docs.envelope_group_field', 'handler');
+    config()->set('job-docs.payload_field', 'payload');
+    config()->set('job-docs.payload_group_field', 'gateway');
+
+    $generator = app(OpenApiGenerator::class);
+    $catalog = $generator->catalog();
+
+    $request = $catalog['card_lock_unlock']['BPC_VISA']['request'];
+
+    expect($request['handler'])->toBe('card_lock_unlock');
+    expect($request['payload']['gateway'])->toBe('BPC_VISA');
+    expect($request['payload'])->toHaveKey('session_id');
+});

@@ -21,5 +21,6 @@ class TestCase extends BaseTestCase
         $app['config']->set('job-docs.envelope_group_field', null);
         $app['config']->set('job-docs.payload_field', null);
         $app['config']->set('job-docs.payload_group_field', null);
+        $app['config']->set('job-docs.use_faker', false);
     }
 }

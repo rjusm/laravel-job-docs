@@ -4,13 +4,15 @@ namespace Rjusm\LaravelJobDocs\Generators;
 
 class RuleParser
 {
+    public function __construct(protected ?FakerExampleGenerator $faker = null) {}
+
     /**
      * Parse a full Laravel `rules()` array into an OpenAPI object schema plus an example payload.
      *
      * @param  array<string, mixed>  $rules
      * @return array{schema: array, example: array}
      */
-    public function parseFieldset(array $rules): array
+    public function parseFieldset(array $rules, bool $useFaker = false): array
     {
         $properties = [];
         $required = [];
@@ -18,7 +20,7 @@ class RuleParser
 
         foreach ($rules as $field => $fieldRules) {
             $field = (string) $field;
-            $parsed = $this->parseField($field, $fieldRules);
+            $parsed = $this->parseField($field, $fieldRules, $useFaker);
 
             $properties[$field] = $parsed['schema'];
             $example[$field] = $parsed['example'];
@@ -46,7 +48,7 @@ class RuleParser
      *
      * @return array{schema: array, required: bool, example: mixed}
      */
-    public function parseField(string $field, mixed $fieldRules): array
+    public function parseField(string $field, mixed $fieldRules, bool $useFaker = false): array
     {
         $tokens = $this->normalizeToTokens($fieldRules);
 
@@ -194,7 +196,7 @@ class RuleParser
         return [
             'schema' => $schema,
             'required' => $required,
-            'example' => $this->exampleFor($field, $type, $format, $enum, $minimum, $maxLength, $minLength),
+            'example' => $this->exampleFor($field, $type, $format, $enum, $minimum, $maximum, $maxLength, $minLength, $useFaker),
         ];
     }
 
@@ -278,9 +280,15 @@ class RuleParser
         ?string $format,
         ?array $enum,
         int|float|null $minimum,
+        int|float|null $maximum,
         ?int $maxLength,
         ?int $minLength,
+        bool $useFaker,
     ): mixed {
+        if ($useFaker && $this->faker !== null) {
+            return $this->faker->generate($field, $type, $format, $enum, $minimum, $maximum);
+        }
+
         if ($enum !== null && $enum !== []) {
             return array_values($enum)[0];
         }

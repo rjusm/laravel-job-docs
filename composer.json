@@ -13,7 +13,8 @@
         "php": "^8.2",
         "illuminate/support": "^10.0|^11.0|^12.0|^13.0",
         "illuminate/console": "^10.0|^11.0|^12.0|^13.0",
-        "illuminate/http": "^10.0|^11.0|^12.0|^13.0"
+        "illuminate/http": "^10.0|^11.0|^12.0|^13.0",
+        "fakerphp/faker": "^1.23"
     },
     "require-dev": {
         "orchestra/testbench": "^8.0|^9.0|^10.0",

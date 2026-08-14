@@ -39,7 +39,22 @@ Point `map_provider` at whatever already produces your job map — a class imple
 'payload_group_field' => 'gateway',
 
 // Optional: scrub generated examples before they're rendered/cached.
+// mask_examples is the single on/off switch for this.
+'mask_examples' => true,
 'example_masker' => [\App\Services\Common\Helpers\DataMasker::class, 'mask'],
+
+// Realistic example values via fakerphp/faker (seeded per field, so repeated
+// generations stay stable) instead of plain "example_field" placeholders.
+'use_faker' => true,
+
+// Human-readable names for the two grouping levels, used by the UI's
+// "group by" selector (which also auto-detects any `meta` keys, e.g. "queue").
+'group1_label' => 'Handler',
+'group2_label' => 'Gateway',
+
+// Lets the UI send a real HTTP request (editable example body) to one of the
+// configured endpoints and show the response, like Swagger UI's "Try it out".
+'allow_try_it' => true,
 ```
 
 ## Generate

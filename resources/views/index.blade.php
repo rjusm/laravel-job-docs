@@ -14,6 +14,7 @@
         --text-dim: #9aa1b2;
         --accent: #5b8def;
         --ok: #3ecf8e;
+        --err: #e35d6a;
         --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
     * { box-sizing: border-box; }
@@ -48,19 +49,22 @@
         font-size: 12px;
         color: var(--accent);
         text-decoration: none;
-        margin-bottom: 4px;
+        margin-bottom: 10px;
     }
-    .search {
-        width: 100%;
-        padding: 8px 10px;
+    .field-row { display: flex; gap: 6px; margin-bottom: 6px; }
+    .search, select, textarea, .btn {
+        font-family: inherit;
+        font-size: 13px;
         border-radius: 6px;
         border: 1px solid var(--border);
         background: var(--panel-alt);
         color: var(--text);
-        font-size: 13px;
         outline: none;
     }
-    .search:focus { border-color: var(--accent); }
+    .search { width: 100%; padding: 8px 10px; }
+    .search:focus, select:focus, textarea:focus { border-color: var(--accent); }
+    select { padding: 6px 8px; }
+    .group-by { width: 130px; flex: 0 0 130px; }
     .tree { flex: 1; overflow-y: auto; padding: 8px 0; }
     .group { border-bottom: 1px solid var(--border); }
     .group summary {
@@ -143,6 +147,42 @@
         cursor: pointer;
     }
     .copy-btn:hover { border-color: var(--accent); }
+    .try-it { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .try-it .row { display: flex; gap: 8px; margin-bottom: 10px; }
+    .try-it select { flex: 1; }
+    textarea#request-body {
+        width: 100%;
+        min-height: 160px;
+        padding: 12px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        resize: vertical;
+    }
+    .btn {
+        cursor: pointer;
+        padding: 8px 16px;
+        font-weight: 600;
+        color: var(--text);
+    }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #0b1220; }
+    .btn.primary:hover { opacity: .9; }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .response-block {
+        margin-top: 12px;
+        background: var(--panel-alt);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 320px;
+        overflow-y: auto;
+    }
+    .response-block.status-ok { border-color: var(--ok); }
+    .response-block.status-err { border-color: var(--err); }
+    .hint { color: var(--text-dim); font-size: 12px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -151,7 +191,10 @@
         <div class="sidebar-header">
             <h1>{{ config('job-docs.info.title', 'API Docs') }}</h1>
             <a href="{{ $openapiUrl }}" target="_blank">openapi.json &#8599;</a>
-            <input class="search" id="search" type="text" placeholder="Search handlers...">
+            <div class="field-row">
+                <input class="search" id="search" type="text" placeholder="Search...">
+                <select class="group-by" id="group-by"></select>
+            </div>
         </div>
         <div class="tree" id="tree"></div>
     </div>
@@ -163,11 +206,16 @@
 
 <script>
 const CATALOG = @json($catalog);
+const GROUP1_LABEL = @json($group1Label);
+const GROUP2_LABEL = @json($group2Label);
+const ALLOW_TRY_IT = @json($allowTryIt);
+const ENDPOINTS = @json($endpoints);
 
 const treeEl = document.getElementById('tree');
 const detailEl = document.getElementById('detail');
 const emptyEl = document.getElementById('empty');
 const searchEl = document.getElementById('search');
+const groupByEl = document.getElementById('group-by');
 
 function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, (c) => ({
@@ -175,45 +223,88 @@ function escapeHtml(str) {
     }[c]));
 }
 
-function renderTree(filter) {
-    filter = (filter || '').toLowerCase();
+// Flatten CATALOG into a single list once.
+const ITEMS = [];
+Object.keys(CATALOG).forEach((group1) => {
+    Object.keys(CATALOG[group1]).forEach((group2) => {
+        ITEMS.push({ group1, group2, entry: CATALOG[group1][group2] });
+    });
+});
+
+// Discover distinct meta keys (e.g. "queue") across every entry, in first-seen order.
+const metaKeys = [];
+ITEMS.forEach(({ entry }) => {
+    Object.keys(entry.meta || {}).forEach((k) => {
+        if (!metaKeys.includes(k)) metaKeys.push(k);
+    });
+});
+
+const GROUP_OPTIONS = [
+    { key: 'group1', label: GROUP1_LABEL },
+    { key: 'group2', label: GROUP2_LABEL },
+    ...metaKeys.map((k) => ({ key: 'meta:' + k, label: k.charAt(0).toUpperCase() + k.slice(1) })),
+];
+
+GROUP_OPTIONS.forEach((opt) => {
+    const el = document.createElement('option');
+    el.value = opt.key;
+    el.textContent = opt.label;
+    groupByEl.appendChild(el);
+});
+
+function bucketKeyFor(item, groupBy) {
+    if (groupBy === 'group1') return { bucket: item.group1, leaf: item.group2 };
+    if (groupBy === 'group2') return { bucket: item.group2, leaf: item.group1 };
+    if (groupBy.startsWith('meta:')) {
+        const metaKey = groupBy.slice(5);
+        const bucket = (item.entry.meta && item.entry.meta[metaKey]) || 'unknown';
+        return { bucket, leaf: `${item.group1} / ${item.group2}` };
+    }
+    return { bucket: item.group1, leaf: item.group2 };
+}
+
+function renderTree() {
+    const filter = (searchEl.value || '').toLowerCase();
+    const groupBy = groupByEl.value;
     treeEl.innerHTML = '';
 
-    Object.keys(CATALOG).sort().forEach((group1) => {
-        const group2Map = CATALOG[group1];
-        const keys = Object.keys(group2Map).filter((group2) => {
-            if (!filter) return true;
-            return (group1 + ' ' + group2).toLowerCase().includes(filter);
-        });
-        if (keys.length === 0) return;
+    const buckets = {};
+    ITEMS.forEach((item) => {
+        const { bucket, leaf } = bucketKeyFor(item, groupBy);
+        const haystack = `${item.group1} ${item.group2} ${bucket}`.toLowerCase();
+        if (filter && !haystack.includes(filter)) return;
+
+        (buckets[bucket] ??= []).push({ leaf, item });
+    });
+
+    Object.keys(buckets).sort().forEach((bucket) => {
+        const rows = buckets[bucket].sort((a, b) => a.leaf.localeCompare(b.leaf));
 
         const details = document.createElement('details');
         details.className = 'group';
         details.open = !!filter;
 
         const summary = document.createElement('summary');
-        summary.innerHTML = `<span>${escapeHtml(group1)}</span><span class="count">${keys.length}</span>`;
+        summary.innerHTML = `<span>${escapeHtml(bucket)}</span><span class="count">${rows.length}</span>`;
         details.appendChild(summary);
 
-        keys.sort().forEach((group2) => {
-            const item = document.createElement('div');
-            item.className = 'item';
-            item.textContent = group2;
-            item.dataset.group1 = group1;
-            item.dataset.group2 = group2;
-            item.addEventListener('click', () => selectItem(group1, group2, item));
-            details.appendChild(item);
+        rows.forEach(({ leaf, item }) => {
+            const el = document.createElement('div');
+            el.className = 'item';
+            el.textContent = leaf;
+            el.addEventListener('click', () => selectItem(item, el));
+            details.appendChild(el);
         });
 
         treeEl.appendChild(details);
     });
 }
 
-function selectItem(group1, group2, el) {
+function selectItem(item, el) {
     document.querySelectorAll('.item.active').forEach((n) => n.classList.remove('active'));
     if (el) el.classList.add('active');
 
-    const entry = CATALOG[group1][group2];
+    const entry = item.entry;
     emptyEl.style.display = 'none';
     detailEl.style.display = 'block';
 
@@ -230,11 +321,27 @@ function selectItem(group1, group2, el) {
     }).join('');
 
     const example = JSON.stringify(entry.example, null, 2);
+    const requestExample = JSON.stringify(entry.request ?? entry.example, null, 2);
     const meta = entry.meta || {};
     const metaBadges = Object.keys(meta).map((k) => `<span class="badge">${escapeHtml(k)}: ${escapeHtml(meta[k])}</span>`).join('');
 
+    const tryItHtml = (ALLOW_TRY_IT && ENDPOINTS.length > 0) ? `
+        <div class="section">
+            <h3>Try it</h3>
+            <div class="try-it">
+                <div class="row">
+                    <select id="endpoint-select"></select>
+                    <button class="btn primary" id="send-btn">Send</button>
+                </div>
+                <textarea id="request-body" spellcheck="false">${escapeHtml(requestExample)}</textarea>
+                <div class="hint">Sends a real HTTP request from your browser to this app.</div>
+                <div id="response-block" class="response-block" style="display:none"></div>
+            </div>
+        </div>
+    ` : '';
+
     detailEl.innerHTML = `
-        <h2>${escapeHtml(group1)} / ${escapeHtml(group2)}</h2>
+        <h2>${escapeHtml(item.group1)} / ${escapeHtml(item.group2)}</h2>
         <div class="subtitle">
             <span class="badge">${escapeHtml(entry.class || '')}</span>${metaBadges}
         </div>
@@ -252,6 +359,7 @@ function selectItem(group1, group2, el) {
                 <pre id="example-json">${escapeHtml(example)}</pre>
             </div>
         </div>
+        ${tryItHtml}
     `;
 
     document.getElementById('copy-btn').addEventListener('click', () => {
@@ -261,10 +369,68 @@ function selectItem(group1, group2, el) {
             setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
         });
     });
+
+    if (ALLOW_TRY_IT && ENDPOINTS.length > 0) {
+        setupTryIt();
+    }
 }
 
-searchEl.addEventListener('input', () => renderTree(searchEl.value));
-renderTree('');
+function setupTryIt() {
+    const endpointSelect = document.getElementById('endpoint-select');
+    ENDPOINTS.forEach((ep, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = ep.label || `${ep.method} ${ep.path}`;
+        endpointSelect.appendChild(opt);
+    });
+
+    document.getElementById('send-btn').addEventListener('click', sendTryItRequest);
+}
+
+async function sendTryItRequest() {
+    const btn = document.getElementById('send-btn');
+    const responseEl = document.getElementById('response-block');
+    const endpoint = ENDPOINTS[document.getElementById('endpoint-select').value];
+    const method = (endpoint.method || 'POST').toUpperCase();
+
+    let body;
+    try {
+        body = JSON.parse(document.getElementById('request-body').value);
+    } catch (e) {
+        responseEl.style.display = 'block';
+        responseEl.className = 'response-block status-err';
+        responseEl.textContent = 'Invalid JSON: ' + e.message;
+        return;
+    }
+
+    btn.disabled = true;
+    responseEl.style.display = 'block';
+    responseEl.className = 'response-block';
+    responseEl.textContent = 'Sending...';
+
+    try {
+        const res = await fetch(endpoint.path, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: method === 'GET' ? undefined : JSON.stringify(body),
+        });
+        const text = await res.text();
+        let pretty = text;
+        try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch (e) { /* not JSON, show as-is */ }
+
+        responseEl.className = 'response-block ' + (res.ok ? 'status-ok' : 'status-err');
+        responseEl.textContent = `HTTP ${res.status} ${res.statusText}\n\n${pretty}`;
+    } catch (err) {
+        responseEl.className = 'response-block status-err';
+        responseEl.textContent = 'Request failed: ' + err.message;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+searchEl.addEventListener('input', renderTree);
+groupByEl.addEventListener('change', renderTree);
+renderTree();
 </script>
 </body>
 </html>

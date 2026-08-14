@@ -16,6 +16,10 @@ class JobDocsController
         return view('job-docs::index', [
             'catalog' => $this->catalog(),
             'openapiUrl' => route('job-docs.openapi'),
+            'group1Label' => (string) config('job-docs.group1_label', 'Group 1'),
+            'group2Label' => (string) config('job-docs.group2_label', 'Group 2'),
+            'allowTryIt' => (bool) config('job-docs.allow_try_it', true),
+            'endpoints' => (array) config('job-docs.endpoints', []),
         ]);
     }
 

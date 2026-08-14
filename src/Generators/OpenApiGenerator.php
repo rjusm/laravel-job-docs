@@ -20,10 +20,11 @@ class OpenApiGenerator
      */
     public function generate(): array
     {
+        $useFaker = (bool) config('job-docs.use_faker', false);
         $map = $this->resolveMap();
         $endpoints = (array) config('job-docs.endpoints', []);
-        $envelopeSchema = $this->buildEnvelopeSchema();
-        $envelopeExample = $this->buildEnvelopeExample();
+        $envelopeSchema = $this->buildEnvelopeSchema($useFaker);
+        $envelopeExample = $this->buildEnvelopeExample($useFaker);
 
         $paths = [];
         foreach ($endpoints as $endpoint) {
@@ -31,7 +32,7 @@ class OpenApiGenerator
             $path = $endpoint['path'] ?? '/';
             $label = $endpoint['label'] ?? $path;
 
-            $paths[$path][$method] = $this->buildOperation($label, $envelopeSchema, $envelopeExample, $map);
+            $paths[$path][$method] = $this->buildOperation($label, $envelopeSchema, $envelopeExample, $map, $useFaker);
         }
 
         return [
@@ -53,19 +54,23 @@ class OpenApiGenerator
      */
     public function catalog(): array
     {
+        $useFaker = (bool) config('job-docs.use_faker', false);
+        $envelopeExample = $this->buildEnvelopeExample($useFaker);
         $catalog = [];
 
         foreach ($this->resolveMap() as $group1 => $group2Map) {
             foreach ($group2Map as $group2 => $entry) {
                 $rules = is_array($entry['validation_rule'] ?? null) ? $entry['validation_rule'] : [];
-                $parsed = $this->ruleParser->parseFieldset($rules);
+                $parsed = $this->ruleParser->parseFieldset($rules, $useFaker);
+                $jobExample = $this->maskExample($parsed['example']);
 
                 $catalog[$group1][$group2] = [
                     'class' => $entry['class'] ?? null,
                     'meta' => $entry['meta'] ?? array_diff_key($entry, array_flip(['class', 'validation_rule', 'meta'])),
                     'rules' => $rules,
                     'schema' => $parsed['schema'],
-                    'example' => $this->maskExample($parsed['example']),
+                    'example' => $jobExample,
+                    'request' => $this->mergeEnvelopeAndPayload($envelopeExample, $jobExample, (string) $group1, (string) $group2),
                 ];
             }
         }
@@ -73,14 +78,14 @@ class OpenApiGenerator
         return $catalog;
     }
 
-    protected function buildOperation(string $label, array $envelopeSchema, array $envelopeExample, array $map): array
+    protected function buildOperation(string $label, array $envelopeSchema, array $envelopeExample, array $map, bool $useFaker = false): array
     {
         $examples = [];
 
         foreach ($map as $group1 => $group2Map) {
             foreach ($group2Map as $group2 => $entry) {
                 $rules = is_array($entry['validation_rule'] ?? null) ? $entry['validation_rule'] : [];
-                $parsed = $this->ruleParser->parseFieldset($rules);
+                $parsed = $this->ruleParser->parseFieldset($rules, $useFaker);
                 $jobExample = $this->maskExample($parsed['example']);
 
                 $exampleKey = $this->slug($group1.'__'.$group2);
@@ -138,18 +143,18 @@ class OpenApiGenerator
         return $value;
     }
 
-    protected function buildEnvelopeSchema(): array
+    protected function buildEnvelopeSchema(bool $useFaker = false): array
     {
         $rules = $this->resolveRules(config('job-docs.envelope_rules'));
 
-        return $this->ruleParser->parseFieldset($rules)['schema'];
+        return $this->ruleParser->parseFieldset($rules, $useFaker)['schema'];
     }
 
-    protected function buildEnvelopeExample(): array
+    protected function buildEnvelopeExample(bool $useFaker = false): array
     {
         $rules = $this->resolveRules(config('job-docs.envelope_rules'));
 
-        return $this->ruleParser->parseFieldset($rules)['example'];
+        return $this->ruleParser->parseFieldset($rules, $useFaker)['example'];
     }
 
     /**
@@ -238,6 +243,10 @@ class OpenApiGenerator
 
     protected function maskExample(array $example): array
     {
+        if (! config('job-docs.mask_examples', true)) {
+            return $example;
+        }
+
         $masker = config('job-docs.example_masker');
 
         if ($masker !== null && is_callable($masker)) {
