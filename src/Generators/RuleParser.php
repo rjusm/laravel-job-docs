@@ -172,6 +172,7 @@ class RuleParser
 
         foreach ($tokens as $token) {
             [$name, $args] = $this->splitToken($token);
+            $params = $this->parseRuleArgs($name, $args);
 
             switch ($name) {
                 case 'required':
@@ -209,8 +210,12 @@ class RuleParser
                 case 'date_format':
                     $format = 'date';
                     // Laravel's date_format rule takes a PHP date() token string
-                    // (e.g. "ymdHis"), so it can be fed straight to date().
-                    $dateFormat = $args;
+                    // (e.g. "ymdHis"), so it can be fed straight to date(). Apps
+                    // sometimes write it quoted (date_format:"Y-m-d") — Laravel's
+                    // own parser strips that quoting via str_getcsv(), which is
+                    // exactly what $params already did above, so use that, not
+                    // the raw $args (which would still have the quote characters).
+                    $dateFormat = $params[0] ?? $args;
                     break;
                 case 'string':
                 case 'alpha_dash':
@@ -219,10 +224,7 @@ class RuleParser
                     // Already the default type; nothing to change.
                     break;
                 case 'in':
-                    $enum = array_values(array_filter(
-                        array_map(fn ($v) => $this->unquoteRuleValue($v), explode(',', (string) $args)),
-                        fn ($v) => $v !== ''
-                    ));
+                    $enum = array_values(array_filter($params, fn ($v) => $v !== ''));
                     break;
                 case 'digits':
                     // Laravel's digits rule means "an integer-like string of
@@ -234,7 +236,7 @@ class RuleParser
                     if ($type === 'number') {
                         $type = 'integer';
                     }
-                    $len = (int) $args;
+                    $len = (int) ($params[0] ?? 0);
                     $minLength = $maxLength = $len;
                     $pattern = '^\\d+$';
                     break;
@@ -242,34 +244,36 @@ class RuleParser
                     if ($type === 'number') {
                         $type = 'integer';
                     }
-                    [$min, $max] = array_pad(explode(',', (string) $args), 2, null);
+                    $min = $params[0] ?? null;
+                    $max = $params[1] ?? null;
                     $minLength = $min !== null ? (int) $min : $minLength;
                     $maxLength = $max !== null ? (int) $max : $maxLength;
                     $pattern = '^\\d+$';
                     break;
                 case 'max':
                     if ($type === 'integer' || $type === 'number') {
-                        $maximum = $this->numeric($args);
+                        $maximum = $this->numeric($params[0] ?? null);
                     } else {
-                        $maxLength = (int) $args;
+                        $maxLength = (int) ($params[0] ?? 0);
                     }
                     break;
                 case 'min':
                     if ($type === 'integer' || $type === 'number') {
-                        $minimum = $this->numeric($args);
+                        $minimum = $this->numeric($params[0] ?? null);
                     } else {
-                        $minLength = (int) $args;
+                        $minLength = (int) ($params[0] ?? 0);
                     }
                     break;
                 case 'size':
                     if ($type === 'integer' || $type === 'number') {
-                        $minimum = $maximum = $this->numeric($args);
+                        $minimum = $maximum = $this->numeric($params[0] ?? null);
                     } else {
-                        $minLength = $maxLength = (int) $args;
+                        $minLength = $maxLength = (int) ($params[0] ?? 0);
                     }
                     break;
                 case 'between':
-                    [$min, $max] = array_pad(explode(',', (string) $args), 2, null);
+                    $min = $params[0] ?? null;
+                    $max = $params[1] ?? null;
                     if ($type === 'integer' || $type === 'number') {
                         $minimum = $min !== null ? $this->numeric($min) : $minimum;
                         $maximum = $max !== null ? $this->numeric($max) : $maximum;
@@ -408,19 +412,27 @@ class RuleParser
     }
 
     /**
-     * Laravel's Rule::in()/Rule::notIn() stringify each value wrapped in double quotes
-     * (escaping literal quotes as ""), to survive commas inside values. Plain
-     * `in:a,b,c` rule strings have no quoting at all, so this is a no-op for those.
+     * Mirrors Illuminate\Validation\ValidationRuleParser::parseParameters()
+     * exactly: every rule except regex/not_regex has its parameter string
+     * parsed as one CSV row (comma-separated, "quoted,values" survive intact,
+     * doubled "" quotes unescape to a literal "). This is what actually
+     * strips the quotes from something like `date_format:"Y-m-d"` — Laravel
+     * itself never sees the quote characters as part of the format string,
+     * so a generated example must not include them either.
+     *
+     * @return list<string>
      */
-    private function unquoteRuleValue(string $value): string
+    private function parseRuleArgs(string $ruleName, ?string $args): array
     {
-        $value = trim($value);
-
-        if (strlen($value) >= 2 && str_starts_with($value, '"') && str_ends_with($value, '"')) {
-            $value = str_replace('""', '"', substr($value, 1, -1));
+        if ($args === null) {
+            return [];
         }
 
-        return $value;
+        if (in_array(strtolower($ruleName), ['regex', 'not_regex', 'notregex'], true)) {
+            return [$args];
+        }
+
+        return str_getcsv($args, escape: '\\');
     }
 
     private function numeric(?string $value): int|float

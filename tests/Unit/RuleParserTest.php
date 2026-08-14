@@ -59,6 +59,19 @@ it('builds a full fieldset schema and example', function () {
     expect($result['example'])->toHaveKeys(['session_id', 'amount']);
 });
 
+it('strips quotes from a date_format argument like Laravel\'s own parser does', function () {
+    // Real-world case: 'doc_datetime' => 'required|date_format:"Y-m-d"' in
+    // several jobs. Laravel's ValidationRuleParser parses the parameter via
+    // str_getcsv(), so the actual format Laravel validates against is
+    // Y-m-d — WITHOUT quotes. Generating an example with the quotes taken
+    // literally produced a value like '"2026-08-14"' that fails Laravel's
+    // own validation.
+    $result = $this->parser->parseField('doc_datetime', 'required|date_format:"Y-m-d"');
+
+    expect($result['example'])->toMatch('/^\d{4}-\d{2}-\d{2}$/');
+    expect($result['example'])->not->toContain('"');
+});
+
 it('does not split a regex pattern containing a literal pipe', function () {
     // Laravel's docs explicitly warn regex needs array form (or to be last)
     // in a pipe-string precisely because the pattern itself may contain '|'.
