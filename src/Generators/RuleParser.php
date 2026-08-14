@@ -9,37 +9,142 @@ class RuleParser
     /**
      * Parse a full Laravel `rules()` array into an OpenAPI object schema plus an example payload.
      *
+     * Field names using Laravel's dot notation for nested arrays (`parent.child`)
+     * and wildcard array validation (`items.*.name`, arbitrarily deep, e.g.
+     * `documents.*.attachments.*.name`) are expanded into real nested
+     * object/array schemas instead of being kept as literal dotted keys.
+     *
      * @param  array<string, mixed>  $rules
      * @return array{schema: array, example: array}
      */
     public function parseFieldset(array $rules, bool $useFaker = false): array
     {
-        $properties = [];
-        $required = [];
-        $example = [];
+        $root = $this->newContainerNode();
 
         foreach ($rules as $field => $fieldRules) {
             $field = (string) $field;
-            $parsed = $this->parseField($field, $fieldRules, $useFaker);
+            $segments = explode('.', $field);
 
-            $properties[$field] = $parsed['schema'];
-            $example[$field] = $parsed['example'];
-
-            if ($parsed['required']) {
-                $required[] = $field;
+            $leafFieldName = end($segments);
+            if ($leafFieldName === '*') {
+                $leafFieldName = $segments[count($segments) - 2] ?? $field;
             }
+
+            $leaf = $this->parseField($leafFieldName, $fieldRules, $useFaker);
+
+            $this->insertIntoTree($root, $segments, $leaf);
         }
 
-        $schema = [
-            'type' => 'object',
-            'properties' => $properties,
+        return [
+            'schema' => $this->nodeToSchema($root),
+            'example' => $this->nodeToExample($root),
         ];
+    }
 
-        if ($required !== []) {
-            $schema['required'] = $required;
+    /**
+     * @return array{__type: string, __props: array, __required: list<string>, __items: ?array}
+     */
+    private function newContainerNode(): array
+    {
+        return ['__type' => 'object', '__props' => [], '__required' => [], '__items' => null];
+    }
+
+    /**
+     * @param  list<string>  $segments
+     * @param  array{schema: array, required: bool, example: mixed}  $leaf
+     */
+    private function insertIntoTree(array &$node, array $segments, array $leaf): void
+    {
+        $segment = array_shift($segments);
+        $isLast = $segments === [];
+
+        if ($segment === '*') {
+            $node['__type'] = 'array';
+
+            if ($isLast) {
+                if (($node['__items']['__type'] ?? null) !== 'object' && ($node['__items']['__type'] ?? null) !== 'array') {
+                    $node['__items'] = ['__type' => 'leaf'] + $leaf;
+                }
+
+                return;
+            }
+
+            if (! isset($node['__items']) || ($node['__items']['__type'] ?? null) === 'leaf') {
+                $node['__items'] = $this->newContainerNode();
+            }
+
+            $this->insertIntoTree($node['__items'], $segments, $leaf);
+
+            return;
         }
 
-        return ['schema' => $schema, 'example' => $example];
+        $node['__type'] = 'object';
+
+        if ($isLast) {
+            if (! isset($node['__props'][$segment]) || $node['__props'][$segment]['__type'] === 'leaf') {
+                $node['__props'][$segment] = ['__type' => 'leaf'] + $leaf;
+            }
+
+            if ($leaf['required'] && ! in_array($segment, $node['__required'], true)) {
+                $node['__required'][] = $segment;
+            }
+
+            return;
+        }
+
+        // A field like "documents" => "required|array" (its own top-level rule)
+        // may be processed before/after "documents.*.name" — whichever arrives
+        // first creates a leaf placeholder, and once the dotted/wildcard rules
+        // reveal the real shape, that placeholder is upgraded into a container.
+        if (! isset($node['__props'][$segment]) || $node['__props'][$segment]['__type'] === 'leaf') {
+            $node['__props'][$segment] = $this->newContainerNode();
+        }
+
+        $this->insertIntoTree($node['__props'][$segment], $segments, $leaf);
+    }
+
+    private function nodeToSchema(array $node): array
+    {
+        if ($node['__type'] === 'leaf') {
+            return $node['schema'];
+        }
+
+        if ($node['__type'] === 'array') {
+            return [
+                'type' => 'array',
+                'items' => $node['__items'] !== null ? $this->nodeToSchema($node['__items']) : ['type' => 'string'],
+            ];
+        }
+
+        $properties = [];
+        foreach ($node['__props'] as $name => $child) {
+            $properties[$name] = $this->nodeToSchema($child);
+        }
+
+        $schema = ['type' => 'object', 'properties' => $properties];
+        if ($node['__required'] !== []) {
+            $schema['required'] = $node['__required'];
+        }
+
+        return $schema;
+    }
+
+    private function nodeToExample(array $node): mixed
+    {
+        if ($node['__type'] === 'leaf') {
+            return $node['example'];
+        }
+
+        if ($node['__type'] === 'array') {
+            return $node['__items'] !== null ? [$this->nodeToExample($node['__items'])] : [];
+        }
+
+        $example = [];
+        foreach ($node['__props'] as $name => $child) {
+            $example[$name] = $this->nodeToExample($child);
+        }
+
+        return $example;
     }
 
     /**
